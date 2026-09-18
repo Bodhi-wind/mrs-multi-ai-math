@@ -1,0 +1,13 @@
+{
+  "name": "mrs-math-lab",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MRS Multi-Role System · 多AI协作数学前沿攻克库",
+  "scripts": {
+    "seed": "npm --prefix backend run seed",
+    "api": "npm --prefix backend run dev",
+    "web": "npm --prefix frontend run dev",
+    "start": "bash scripts/start.sh"
+  },
+  "license": "MIT"
+}

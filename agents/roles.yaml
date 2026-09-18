@@ -1,0 +1,105 @@
+# MRS Multi-Role System — Role Registry
+# 多AI协作数学前沿攻克库 · 角色注册表
+
+version: 1
+system: MRS
+meaning: Multi-Role System
+
+pipeline:
+  - explorer
+  - historian
+  - prover
+  - critic
+  - formalizer
+  - synthesizer
+
+roles:
+  - id: role-explorer
+    key: explorer
+    name: Explorer
+    name_zh: 探索者
+    color: "#3B82F6"
+    icon: compass
+    mission: >
+      勘察问题全景，梳理已知结果与等价形式，提出并排序攻击角度。
+    outputs:
+      - landscape_map
+      - attack_angles
+      - next_experiments
+    handoff_to: [historian, prover]
+
+  - id: role-historian
+    key: historian
+    name: Historian
+    name_zh: 史鉴者
+    color: "#06B6D4"
+    icon: book-open
+    mission: >
+      文献策展、失败路径编目、跨领域链接，避免重复发明。
+    outputs:
+      - reading_list
+      - failed_attempts_catalog
+      - cross_field_links
+    handoff_to: [explorer, prover, critic]
+
+  - id: role-prover
+    key: prover
+    name: Prover
+    name_zh: 证明者
+    color: "#10B981"
+    icon: shield
+    mission: >
+      构造引理 DAG 与严格证明草稿，显式标记 [GAP]。
+    outputs:
+      - lemma_dag
+      - proof_draft
+      - gap_list
+    handoff_to: [critic, formalizer]
+
+  - id: role-critic
+    key: critic
+    name: Critic
+    name_zh: 批判者
+    color: "#EF4444"
+    icon: search
+    mission: >
+      对抗性审查：找漏洞、反例、隐含假设与循环论证。
+    outputs:
+      - verdict_table
+      - counterexample_attempts
+      - minimal_repairs
+    handoff_to: [prover, synthesizer]
+
+  - id: role-formalizer
+    key: formalizer
+    name: Formalizer
+    name_zh: 形式化者
+    color: "#8B5CF6"
+    icon: code
+    mission: >
+      将非形式数学翻译为 Lean 4（优先），管理 sorry 债务与 mathlib 依赖。
+    outputs:
+      - lean_sketch
+      - formal_roadmap
+      - sorry_board
+    handoff_to: [prover, synthesizer]
+
+  - id: role-synthesizer
+    key: synthesizer
+    name: Synthesizer
+    name_zh: 综合者
+    color: "#F59E0B"
+    icon: git-merge
+    mission: >
+      融合多角色输出，维护攻击计划、进度与下一行动，必要时强制策略 pivot。
+    outputs:
+      - progress_report
+      - next_actions
+      - strategy_pivot
+    handoff_to: [explorer, prover, historian, critic, formalizer]
+
+governance:
+  - Critic 连续两次判定 structural flaw → 触发 Synthesizer pivot
+  - 未关闭 [GAP] 时不得将战役 progress 单次上调超过 +10%
+  - Formalizer 仅形式化 Critic 未否决的片段
+  - 禁止虚构文献；Historian 对不确定引用必须标注
