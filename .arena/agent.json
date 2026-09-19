@@ -1,0 +1,37 @@
+{
+  "name": "MRS Multi-AI Math",
+  "slug": "mrs-multi-ai-math",
+  "version": "1.2.0",
+  "homepage": "https://github.com/Bodhi-wind/mrs-multi-ai-math",
+  "arena_agent_url": "https://arena.ai/agent/",
+  "description": "Multi-Role System for mathematical frontier problems: pipeline, multi-result synthesis, prompt packs, n100 lab.",
+  "compliance": {
+    "allowed": [
+      "mathematical_research",
+      "open_problems",
+      "multi_model_synthesis",
+      "prompt_engineering_for_math"
+    ],
+    "denied": [
+      "cyber_attacks",
+      "malware",
+      "unauthorized_access",
+      "fraud",
+      "jailbreaks"
+    ]
+  },
+  "entrypoints": {
+    "readme": "README.md",
+    "agents_guide": "AGENTS.md",
+    "flagship_problem": "knowledge/problems/unit-disk-100-circle-covering.md",
+    "manifest_api": "/api/arena/manifest"
+  },
+  "capabilities": [
+    "pipeline",
+    "llm_optional",
+    "knowledge_writeback",
+    "four_checklist",
+    "covering_upper_bound",
+    "prompt_pack_generation"
+  ]
+}

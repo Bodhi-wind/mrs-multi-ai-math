@@ -32,11 +32,19 @@ function Dashboard() {
     <Shell>
       <PageHeader
         title="MRS 总览看板"
-        subtitle="Multi-Role System · 多AI协作数学前沿攻克库 — 问题追踪、角色协作、证明工件一体工作台"
+        subtitle="Multi-Role System · 可接入 Arena.ai Agent · 多结果整合 · 提示词工坊 — 仅限合法数学研究"
         actions={
-          <Link className="btn btn-primary" to="/problems">
-            <LibraryIcon /> 进入问题库
-          </Link>
+          <>
+            <a className="btn btn-secondary" href="https://arena.ai/agent/" target="_blank" rel="noreferrer">
+              Arena Agent
+            </a>
+            <Link className="btn btn-secondary" to="/prompts">
+              提示词工坊
+            </Link>
+            <Link className="btn btn-primary" to="/problems">
+              <LibraryIcon /> 进入问题库
+            </Link>
+          </>
         }
       />
 
@@ -1088,6 +1096,588 @@ function ActivityPage() {
   );
 }
 
+/* ───────────────── Prompts Workshop ───────────────── */
+function PromptsPage() {
+  const [problems, setProblems] = useState<Problem[]>([]);
+  const [slug, setSlug] = useState('unit-disk-100-circle-covering');
+  const [role, setRole] = useState('explorer');
+  const [focus, setFocus] = useState('');
+  const [built, setBuilt] = useState<{ system: string; user: string; combined: string } | null>(null);
+  const [kickoff, setKickoff] = useState('');
+  const [howTo, setHowTo] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [copied, setCopied] = useState('');
+
+  useEffect(() => {
+    api.problems().then((ps) => {
+      setProblems(ps);
+      if (ps.length && !ps.find((p) => p.slug === slug)) setSlug(ps[0].slug);
+    }).catch(console.error);
+    api.arenaKickoff('unit-disk-100-circle-covering').then((k) => {
+      setKickoff(k.kickoff);
+      setHowTo(k.how_to);
+    }).catch(console.error);
+  }, []);
+
+  const build = async () => {
+    setBusy(true);
+    setErr('');
+    try {
+      const res = await api.buildPrompt({ slug, role, focus: focus || undefined });
+      setBuilt(res);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copy = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(label);
+      setTimeout(() => setCopied(''), 1500);
+    } catch {
+      setErr('剪贴板不可用，请手动全选复制');
+    }
+  };
+
+  const roles = [
+    ['explorer', 'Explorer 探索者'],
+    ['historian', 'Historian 史鉴者'],
+    ['prover', 'Prover 证明者'],
+    ['critic', 'Critic 批判者'],
+    ['formalizer', 'Formalizer 形式化者'],
+    ['synthesizer', 'Synthesizer 综合者'],
+  ];
+
+  return (
+    <Shell>
+      <PageHeader
+        title="提示词工坊"
+        subtitle="为 Arena.ai Agent / 外部 LLM 生成 MRS 角色提示词。合规：仅数学研究；违法违规请求将被拒绝。"
+        actions={
+          <a className="btn btn-secondary" href="https://arena.ai/agent/" target="_blank" rel="noreferrer">
+            打开 Arena Agent
+          </a>
+        }
+      />
+
+      <div className="card" style={{ marginBottom: 18 }}>
+        <div className="card-header"><h3>接入 Arena.ai Agent Mode</h3></div>
+        <div className="card-body" style={{ fontSize: 14, lineHeight: 1.7 }}>
+          <ol style={{ paddingLeft: 20 }}>
+            <li>打开 <a href="https://arena.ai/agent/" target="_blank" rel="noreferrer">arena.ai/agent</a> → <strong>Connect GitHub</strong></li>
+            <li>选择仓库 <code>Bodhi-wind/mrs-multi-ai-math</code></li>
+            <li>粘贴下方 Kickoff 或本页生成的角色提示词</li>
+            <li>多模型输出带回本站「多结果整合」合并</li>
+          </ol>
+          {howTo && <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, marginTop: 12, opacity: 0.85 }}>{howTo}</pre>}
+          {kickoff && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                <strong>Arena Kickoff（旗舰题默认）</strong>
+                <button className="btn btn-primary btn-sm" onClick={() => copy(kickoff, 'kickoff')}>
+                  {copied === 'kickoff' ? '已复制' : '复制 Kickoff'}
+                </button>
+              </div>
+              <textarea className="textarea" style={{ minHeight: 160 }} readOnly value={kickoff} />
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 18 }}>
+        <div className="card-header"><h3>按问题 × 角色生成</h3></div>
+        <div className="card-body">
+          <div className="filters" style={{ marginBottom: 12 }}>
+            <select className="select" value={slug} onChange={(e) => setSlug(e.target.value)} style={{ maxWidth: 360 }}>
+              {problems.map((p) => (
+                <option key={p.slug} value={p.slug}>{p.title_zh}</option>
+              ))}
+            </select>
+            <select className="select" value={role} onChange={(e) => setRole(e.target.value)}>
+              {roles.map(([id, label]) => (
+                <option key={id} value={id}>{label}</option>
+              ))}
+            </select>
+            <input
+              className="input"
+              style={{ maxWidth: 320 }}
+              placeholder="本轮焦点（可选）"
+              value={focus}
+              onChange={(e) => setFocus(e.target.value)}
+            />
+            <button className="btn btn-primary" disabled={busy} onClick={build}>
+              {busy ? '生成中…' : '生成提示词'}
+            </button>
+          </div>
+          {err && <div style={{ color: 'var(--danger)', marginBottom: 10 }}>{err}</div>}
+          {built && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button className="btn btn-secondary btn-sm" onClick={() => copy(built.combined, 'combined')}>
+                  {copied === 'combined' ? '已复制' : '复制完整提示词'}
+                </button>
+                <button className="btn btn-secondary btn-sm" onClick={() => copy(built.system, 'system')}>
+                  {copied === 'system' ? '已复制' : '复制 System'}
+                </button>
+                <button className="btn btn-secondary btn-sm" onClick={() => copy(built.user, 'user')}>
+                  {copied === 'user' ? '已复制' : '复制 User 开场'}
+                </button>
+              </div>
+              <textarea className="textarea" style={{ minHeight: 360, fontFamily: 'var(--font-mono)', fontSize: 12 }} readOnly value={built.combined} />
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-header"><h3>合规声明</h3></div>
+        <div className="card-body" style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+          本工坊与 Arena 接入<strong>仅用于合法数学研究</strong>。若请求涉及网络攻击、恶意软件、未授权入侵、欺诈、越狱等，API 将返回 403。
+          数学语境下的「攻击」仅指对开放问题的证明策略。详见仓库 <code>AGENTS.md</code>。
+        </div>
+      </div>
+    </Shell>
+  );
+}
+
+/* ───────────────── Multi-result Synthesis ───────────────── */
+type DraftResult = { source: string; role: string; title: string; content: string; score: string };
+
+function SynthesisPage() {
+  const [problems, setProblems] = useState<Problem[]>([]);
+  const [slug, setSlug] = useState('unit-disk-100-circle-covering');
+  const [focus, setFocus] = useState('四要件对照与冲突裁决');
+  const [items, setItems] = useState<DraftResult[]>([
+    { source: 'model-A', role: 'explorer', title: '结果 1', content: '', score: '' },
+    { source: 'model-B', role: 'prover', title: '结果 2', content: '', score: '' },
+  ]);
+  const [report, setReport] = useState('');
+  const [meta, setMeta] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [saved, setSaved] = useState('');
+
+  useEffect(() => {
+    api.problems().then((ps) => setProblems(ps)).catch(console.error);
+  }, []);
+
+  const update = (i: number, patch: Partial<DraftResult>) => {
+    setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
+  };
+
+  const add = () =>
+    setItems((prev) => [
+      ...prev,
+      { source: `model-${String.fromCharCode(65 + prev.length)}`, role: 'unknown', title: `结果 ${prev.length + 1}`, content: '', score: '' },
+    ]);
+
+  const remove = (i: number) => setItems((prev) => prev.filter((_, idx) => idx !== i));
+
+  const run = async (persist: boolean) => {
+    setBusy(true);
+    setErr('');
+    setSaved('');
+    try {
+      const results = items
+        .filter((it) => it.content.trim())
+        .map((it) => ({
+          source: it.source,
+          role: it.role,
+          title: it.title,
+          content: it.content,
+          score: it.score ? Number(it.score) : undefined,
+        }));
+      if (results.length < 1) throw new Error('请至少粘贴 1 条结果内容');
+
+      if (persist) {
+        await api.createResultsBatch({ problem_slug: slug, results });
+      }
+
+      const out = await api.synthesize({
+        problem_slug: slug,
+        focus,
+        results,
+        dry_run: !persist,
+        save_artifact: persist,
+      });
+      setReport(out.markdown);
+      setMeta(out);
+      if (persist && out.synthesis_id) setSaved(`已保存 synthesis=${out.synthesis_id}${out.artifact_id ? ` artifact=${out.artifact_id}` : ''}`);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Shell>
+      <PageHeader
+        title="多结果整合"
+        subtitle="输入多模型 / 多角色 / 多会话产出，按 MRS 协议抽取声明、检测冲突、对照成功标准，并生成综合报告与下一步。"
+      />
+
+      <div className="filters">
+        <select className="select" style={{ maxWidth: 360 }} value={slug} onChange={(e) => setSlug(e.target.value)}>
+          {problems.map((p) => (
+            <option key={p.slug} value={p.slug}>{p.title_zh}</option>
+          ))}
+        </select>
+        <input className="input" style={{ maxWidth: 360 }} value={focus} onChange={(e) => setFocus(e.target.value)} placeholder="整合焦点" />
+        <button className="btn btn-secondary" onClick={add}><Plus size={14} /> 添加结果槽</button>
+        <button className="btn btn-secondary" disabled={busy} onClick={() => run(false)}>预览整合</button>
+        <button className="btn btn-primary" disabled={busy} onClick={() => run(true)}>
+          {busy ? '处理中…' : '登记并整合'}
+        </button>
+      </div>
+      {err && <div style={{ color: 'var(--danger)', marginBottom: 12 }}>{err}</div>}
+      {saved && <div style={{ color: 'var(--accent-3)', marginBottom: 12, fontSize: 13 }}>{saved}</div>}
+
+      <div className="two-col">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {items.map((it, i) => (
+            <div key={i} className="card">
+              <div className="card-header">
+                <h3>{it.title || `结果 ${i + 1}`}</h3>
+                <button className="btn btn-ghost btn-sm" onClick={() => remove(i)}>删除</button>
+              </div>
+              <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                  <input className="input" placeholder="source" value={it.source} onChange={(e) => update(i, { source: e.target.value })} />
+                  <select className="select" value={it.role} onChange={(e) => update(i, { role: e.target.value })}>
+                    {['explorer', 'historian', 'prover', 'critic', 'formalizer', 'synthesizer', 'unknown'].map((r) => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                  <input className="input" placeholder="score 1-5" value={it.score} onChange={(e) => update(i, { score: e.target.value })} />
+                </div>
+                <input className="input" placeholder="标题" value={it.title} onChange={(e) => update(i, { title: e.target.value })} />
+                <textarea
+                  className="textarea"
+                  style={{ minHeight: 120 }}
+                  placeholder="粘贴该模型/角色的完整 Markdown 输出…"
+                  value={it.content}
+                  onChange={(e) => update(i, { content: e.target.value })}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div>
+          {meta?.four_requirements && (
+            <div className="card" style={{ marginBottom: 12 }}>
+              <div className="card-header"><h3>四要件快检</h3></div>
+              <div className="card-body">
+                {Object.entries(meta.four_requirements).map(([k, v]) => (
+                  <div key={k} className="list-row">
+                    <span>{k}</span>
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', maxWidth: '55%', textAlign: 'right' }}>{String(v)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {meta?.next_actions && (
+            <div className="card" style={{ marginBottom: 12 }}>
+              <div className="card-header"><h3>下一步</h3></div>
+              <div className="card-body">
+                <ul style={{ paddingLeft: 18, fontSize: 13 }}>
+                  {meta.next_actions.map((a: string, i: number) => (
+                    <li key={i} style={{ marginBottom: 6 }}>{a}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+          <div className="card">
+            <div className="card-header">
+              <h3>综合报告</h3>
+              {report && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => navigator.clipboard.writeText(report)}
+                >
+                  复制
+                </button>
+              )}
+            </div>
+            <div className="card-body">
+              {report ? <Markdown content={report} /> : <div className="empty">粘贴多条结果后点击「预览整合」</div>}
+            </div>
+          </div>
+        </div>
+      </div>
+    </Shell>
+  );
+}
+
+/* ───────────────── Pipeline ───────────────── */
+function PipelinePage() {
+  const [problems, setProblems] = useState<Problem[]>([]);
+  const [slug, setSlug] = useState('unit-disk-100-circle-covering');
+  const [focus, setFocus] = useState('MRS P0 流水线：勘察→史鉴→证明→批判→综合');
+  const [llm, setLlm] = useState<{ configured: boolean; model: string } | null>(null);
+  const [useLlm, setUseLlm] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [out, setOut] = useState<any>(null);
+
+  useEffect(() => {
+    api.problems().then(setProblems).catch(console.error);
+    api.llmStatus().then((s) => setLlm(s)).catch(console.error);
+  }, []);
+
+  const run = async () => {
+    setBusy(true);
+    setErr('');
+    setOut(null);
+    try {
+      const res = await api.runPipeline({
+        slug,
+        focus,
+        use_llm: useLlm,
+        write_knowledge: true,
+      });
+      setOut(res);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Shell>
+      <PageHeader
+        title="一键流水线"
+        subtitle="按 MRS 顺序自动跑多角色 → 登记 results → 综合报告 → 回写 knowledge/campaigns/。无 Key 时用研究模板，有 Key 时走 OpenAI 兼容 API。"
+        actions={
+          <button className="btn btn-primary" disabled={busy} onClick={run}>
+            <Play size={14} /> {busy ? '流水线运行中…' : '启动流水线'}
+          </button>
+        }
+      />
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-body" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+          <select className="select" style={{ maxWidth: 360 }} value={slug} onChange={(e) => setSlug(e.target.value)}>
+            {problems.map((p) => (
+              <option key={p.slug} value={p.slug}>{p.title_zh}</option>
+            ))}
+          </select>
+          <input className="input" style={{ maxWidth: 420 }} value={focus} onChange={(e) => setFocus(e.target.value)} />
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
+            <input type="checkbox" checked={useLlm} onChange={(e) => setUseLlm(e.target.checked)} />
+            尝试 LLM（{llm?.configured ? `已配置 ${llm.model}` : '未配置 Key → 自动模板'}）
+          </label>
+        </div>
+      </div>
+
+      {err && <div style={{ color: 'var(--danger)', marginBottom: 12 }}>{err}</div>}
+
+      {out && (
+        <div className="two-col">
+          <div className="card">
+            <div className="card-header"><h3>步骤</h3></div>
+            <div className="card-body">
+              <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 8 }}>
+                campaign={out.campaign_id} · synthesis={out.synthesis_id}
+                {out.knowledge_synthesis && <> · kn={out.knowledge_synthesis}</>}
+              </div>
+              {(out.steps || []).map((s: any, i: number) => (
+                <div key={i} className="list-row">
+                  <div>
+                    <strong>{s.role_zh || s.role}</strong>
+                    <span className="tag" style={{ marginLeft: 8 }}>{s.engine}</span>
+                    {s.knowledge_path && (
+                      <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>{s.knowledge_path}</div>
+                    )}
+                  </div>
+                  <span className="mono">{s.content_len}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="card">
+            <div className="card-header"><h3>综合报告</h3></div>
+            <div className="card-body">
+              {out.report?.four_requirements && (
+                <div style={{ marginBottom: 12 }}>
+                  {Object.entries(out.report.four_requirements).map(([k, v]) => (
+                    <div key={k} className="list-row">
+                      <span>{k}</span>
+                      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{String(v)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <Markdown content={out.report?.markdown || ''} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-header"><h3>配置 LLM（可选）</h3></div>
+        <div className="card-body" style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+          复制 <code>backend/.env.example</code> 为 <code>backend/.env</code>，填写：
+          <pre style={{ marginTop: 8 }}>{`MRS_LLM_API_KEY=sk-...
+MRS_LLM_BASE_URL=https://api.openai.com/v1
+MRS_LLM_MODEL=gpt-4o-mini`}</pre>
+          重启 API 后生效。密钥勿提交 Git。
+        </div>
+      </div>
+    </Shell>
+  );
+}
+
+/* ───────────────── N=100 lab ───────────────── */
+function N100Page() {
+  const slug = 'unit-disk-100-circle-covering';
+  const [checklist, setChecklist] = useState<any>(null);
+  const [bound, setBound] = useState<any>(null);
+  const [mode, setMode] = useState<'rings' | 'lattice'>('rings');
+  const [n, setN] = useState(100);
+  const [files, setFiles] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const load = () => {
+    api.checklist(slug).then(setChecklist).catch(console.error);
+    api.knowledgeCampaign(slug).then((k) => setFiles(k.files)).catch(() => setFiles([]));
+  };
+  useEffect(load, []);
+
+  const saveItem = async (idx: number, patch: any) => {
+    if (!checklist) return;
+    const items = checklist.items.map((it: any, i: number) => (i === idx ? { ...it, ...patch } : it));
+    const next = await api.saveChecklist(slug, { items, blockers: checklist.blockers });
+    setChecklist(next);
+  };
+
+  const runBound = async () => {
+    setBusy(true);
+    setErr('');
+    try {
+      const r = await api.coveringBound({ n, mode, grid: 81 });
+      setBound(r);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Shell>
+      <PageHeader
+        title="100 圆专项实验室"
+        subtitle="四要件清单 + 诚实数值上界工具。数值结果永远是 L1 上界线索，不能勾选「已验证完成」。"
+        actions={
+          <>
+            <Link className="btn btn-secondary" to="/pipeline">跑流水线</Link>
+            <Link className="btn btn-secondary" to={`/problems/${slug}`}>题面</Link>
+          </>
+        }
+      />
+
+      {err && <div style={{ color: 'var(--danger)' }}>{err}</div>}
+
+      <div className="two-col">
+        <div className="card">
+          <div className="card-header">
+            <h3>四要件清单 · overall={checklist?.overall || '—'}</h3>
+            <button className="btn btn-ghost btn-sm" onClick={() => api.resetChecklist(slug).then(setChecklist)}>重置</button>
+          </div>
+          <div className="card-body">
+            {(checklist?.items || []).map((it: any, idx: number) => (
+              <div key={it.id} style={{ borderBottom: '1px solid var(--border)', padding: '12px 0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                  <strong>{it.title_zh}</strong>
+                  <select
+                    className="select"
+                    style={{ maxWidth: 140 }}
+                    value={it.status}
+                    onChange={(e) => saveItem(idx, { status: e.target.value })}
+                  >
+                    <option value="missing">missing</option>
+                    <option value="partial">partial</option>
+                    <option value="claimed">claimed</option>
+                    <option value="verified">verified</option>
+                  </select>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 6 }}>{it.notes}</div>
+                <input
+                  className="input"
+                  placeholder="证据链接 / 文件路径"
+                  value={it.evidence || ''}
+                  onChange={(e) => saveItem(idx, { evidence: e.target.value })}
+                />
+              </div>
+            ))}
+            {checklist?.blockers?.length > 0 && (
+              <div style={{ marginTop: 12, color: 'var(--warn)', fontSize: 13 }}>
+                Blockers: {checklist.blockers.join('；')}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div>
+          <div className="card" style={{ marginBottom: 14 }}>
+            <div className="card-header"><h3>数值上界工具（非定理）</h3></div>
+            <div className="card-body">
+              <div className="filters">
+                <input className="input" style={{ maxWidth: 100 }} type="number" value={n} onChange={(e) => setN(Number(e.target.value))} />
+                <select className="select" value={mode} onChange={(e) => setMode(e.target.value as any)}>
+                  <option value="rings">rings</option>
+                  <option value="lattice">lattice</option>
+                </select>
+                <button className="btn btn-primary" disabled={busy} onClick={runBound}>
+                  {busy ? '计算中…' : '计算上界'}
+                </button>
+              </div>
+              {bound && (
+                <div style={{ fontSize: 13 }}>
+                  <p style={{ color: 'var(--danger)', marginBottom: 8 }}>{bound.disclaimer}</p>
+                  <div className="list-row"><span>mode</span><span className="mono">{bound.mode}</span></div>
+                  <div className="list-row"><span>n</span><span className="mono">{bound.n}</span></div>
+                  <div className="list-row"><span>sample max-min</span><span className="mono">{bound.sample_max_min_dist?.toFixed?.(6) ?? bound.sample_max_min_dist}</span></div>
+                  <div className="list-row"><span>reported radius</span><span className="mono">{bound.radius?.toFixed?.(6) ?? bound.radius}</span></div>
+                  <div className="list-row"><span>centers</span><span className="mono">{bound.centers?.length}</span></div>
+                  <ul style={{ marginTop: 10, paddingLeft: 18, color: 'var(--text-muted)' }}>
+                    {(bound.notes || []).map((t: string, i: number) => (
+                      <li key={i}>{t}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-header">
+              <h3>knowledge/campaigns/{slug}</h3>
+              <button className="btn btn-ghost btn-sm" onClick={load}>刷新</button>
+            </div>
+            <div className="card-body">
+              {files.length === 0 && <div className="empty">尚无回写文件；跑流水线或整合后出现</div>}
+              {files.map((f) => (
+                <div key={f} className="list-row"><span className="mono" style={{ fontSize: 12 }}>{f}</span></div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </Shell>
+  );
+}
+
 /* ───────────────── App ───────────────── */
 export default function App() {
   return (
@@ -1098,6 +1688,10 @@ export default function App() {
       <Route path="/campaigns" element={<CampaignsPage />} />
       <Route path="/campaigns/:id" element={<CampaignDetailPage />} />
       <Route path="/roles" element={<RolesPage />} />
+      <Route path="/prompts" element={<PromptsPage />} />
+      <Route path="/synthesis" element={<SynthesisPage />} />
+      <Route path="/pipeline" element={<PipelinePage />} />
+      <Route path="/n100" element={<N100Page />} />
       <Route path="/artifacts" element={<ArtifactsPage />} />
       <Route path="/literature" element={<LiteraturePage />} />
       <Route path="/activity" element={<ActivityPage />} />

@@ -1,13 +1,37 @@
 {
-  "name": "mrs-math-lab",
-  "version": "1.0.0",
+  "name": "mrs-multi-ai-math",
+  "version": "1.2.0",
   "private": true,
-  "description": "MRS Multi-Role System · 多AI协作数学前沿攻克库",
+  "description": "MRS Multi-Role System · 多AI协作数学前沿攻克库（独立仓库，可接 Arena.ai Agent）",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Bodhi-wind/mrs-multi-ai-math.git"
+  },
+  "homepage": "https://github.com/Bodhi-wind/mrs-multi-ai-math",
+  "bugs": {
+    "url": "https://github.com/Bodhi-wind/mrs-multi-ai-math/issues"
+  },
+  "keywords": [
+    "mathematics",
+    "multi-agent",
+    "open-problems",
+    "discrete-geometry",
+    "lean",
+    "arena-ai",
+    "research"
+  ],
   "scripts": {
+    "setup": "npm --prefix backend install && npm --prefix frontend install && npm run seed",
     "seed": "npm --prefix backend run seed",
     "api": "npm --prefix backend run dev",
     "web": "npm --prefix frontend run dev",
-    "start": "bash scripts/start.sh"
+    "start": "bash scripts/start.sh",
+    "build": "npm --prefix frontend run build",
+    "smoke": "bash scripts/smoke.sh",
+    "typecheck": "npm --prefix backend exec tsc -- --noEmit && npm --prefix frontend exec tsc -b --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "license": "MIT"
 }

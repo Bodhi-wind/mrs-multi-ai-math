@@ -693,6 +693,7 @@ const problems = [
   },
 ];
 
+
 const insertProblem = db.prepare(`
   INSERT INTO problems (
     id, slug, title, title_zh, field, subfield, difficulty, status, millennium,
@@ -708,11 +709,179 @@ const insertProblem = db.prepare(`
 const problemIds: Record<string, string> = {};
 
 for (const p of problems) {
+  const id = uuid();
+  problemIds[p.slug] = id;
+  insertProblem.run({
+    id,
+    slug: p.slug,
+    title: p.title,
+    title_zh: p.title_zh,
+    field: p.field,
+    subfield: p.subfield,
+    difficulty: p.difficulty,
+    status: p.status,
+    millennium: p.millennium,
+    summary: p.summary,
+    summary_zh: p.summary_zh,
+    formal_statement: p.formal_statement,
+    known_partial: p.known_partial,
+    key_obstacles: p.key_obstacles,
+    references_json: JSON.stringify(p.references),
+    tags_json: JSON.stringify(p.tags),
+    priority: p.priority,
+  });
+}
+
+// Sample campaign on Riemann Hypothesis
+const rhId = problemIds['riemann-hypothesis'];
+const campaignId = uuid();
+db.prepare(`
+  INSERT INTO campaigns (id, problem_id, title, status, strategy, progress, notes)
+  VALUES (?, ?, ?, ?, ?, ?, ?)
+`).run(
+  campaignId,
+  rhId,
+  'RH 零点谱解释进攻线',
+  'active',
+  '探索 Hilbert–Pólya 思路与随机矩阵/量子混沌联系，同时推进显式公式与零点统计的形式化。',
+  18,
+  '示范战役：展示 MRS 多角色如何围绕单一前沿问题协作。'
+);
+
+const milestones = [
+  { title: '文献与等价形式图谱', status: 'completed', order: 1 },
+  { title: '攻击角度排序与筛选', status: 'completed', order: 2 },
+  { title: '显式公式关键引理整理', status: 'active', order: 3 },
+  { title: '零点密度估计形式化草稿', status: 'pending', order: 4 },
+  { title: '批判审查与反例压力测试', status: 'pending', order: 5 },
+  { title: '综合报告与下一阶段路线', status: 'pending', order: 6 },
+];
+
+const insertMs = db.prepare(`
+  INSERT INTO milestones (id, campaign_id, title, description, status, order_index, completed_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?)
+`);
+for (const m of milestones) {
+  insertMs.run(
+    uuid(),
+    campaignId,
+    m.title,
+    null,
+    m.status,
+    m.order,
+    m.status === 'completed' ? new Date().toISOString() : null
+  );
+}
+
+const sessionExplorer = uuid();
+const sessionProver = uuid();
+db.prepare(`
+  INSERT INTO sessions (id, campaign_id, role_id, title, status) VALUES (?, ?, ?, ?, ?)
+`).run(sessionExplorer, campaignId, 'role-explorer', 'RH 全景勘察', 'completed');
+db.prepare(`
+  INSERT INTO sessions (id, campaign_id, role_id, title, status) VALUES (?, ?, ?, ?, ?)
+`).run(sessionProver, campaignId, 'role-prover', '显式公式引理草稿', 'running');
+
+const insertMsg = db.prepare(`
+  INSERT INTO messages (id, session_id, role_id, sender, content, message_type)
+  VALUES (?, ?, ?, ?, ?, ?)
+`);
+
+insertMsg.run(
+  uuid(),
+  sessionExplorer,
+  'role-explorer',
+  'Explorer',
+  `## Landscape
+Riemann Hypothesis reconnaissance sample for MRS demo.
+
+### Attack Angles
+1. Hilbert–Pólya spectral
+2. Random matrix heuristics
+3. Explicit formula positivity
+
+### Next Experiments
+- Formalize Weil criterion sketch
+- Critic stress-test angle #1`,
+  'analysis'
+);
+
+insertMsg.run(
+  uuid(),
+  sessionProver,
+  'role-prover',
+  'Prover',
+  `## Target Lemma (draft)
+Classical zero-free region shape. [GAP] constants.
+
+### Status
+Demo proof_draft for MRS pipeline.`,
+  'proof_draft'
+);
+
+// Campaign for 100-circle flagship
+const n100Id = problemIds['unit-disk-100-circle-covering'];
+if (n100Id) {
+  const c100 = uuid();
+  db.prepare(`
+    INSERT INTO campaigns (id, problem_id, title, status, strategy, progress, notes)
+    VALUES (?, ?, ?, 'active', ?, 5, ?)
+  `).run(
+    c100,
+    n100Id,
+    '100 圆覆盖 · 四要件攻坚',
+    '数值纪录与接触图 → 代数半径 → 连续统覆盖证书 → 无对称全局下界；禁止偷运对称假设。',
+    '旗舰挑战战役'
+  );
+  const defs = [
+    'Explorer：数值纪录与接触图分类',
+    'Historian：覆盖文献与失败路径',
+    'Prover：固定组合型代数系统',
+    'Critic：有限点覆盖与对称假设审计',
+    'Formalizer：覆盖分区 Lean 骨架',
+    'Synthesizer：四要件态势与 pivot',
+  ];
+  defs.forEach((t, i) => {
+    insertMs.run(uuid(), c100, t, null, i === 0 ? 'active' : 'pending', i + 1, null);
+  });
+}
+
+db.prepare(`
+  INSERT INTO artifacts (id, problem_id, campaign_id, kind, title, content, status)
+  VALUES (?, ?, ?, ?, ?, ?, ?)
+`).run(
+  uuid(),
+  rhId,
+  campaignId,
+  'strategy_doc',
+  'RH 战役策略 v0.1',
+  '# RH Attack Strategy v0.1\n\nDemo artifact.',
+  'active'
+);
+
+const litInsert = db.prepare(`
+  INSERT INTO literature (id, problem_id, title, authors, year, venue, url, abstract, notes, relevance)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
+litInsert.run(uuid(), rhId, 'The Theory of the Riemann Zeta-function', 'Titchmarsh', 1986, 'OUP', null, null, '基线参考', 5);
+if (n100Id) {
+  litInsert.run(uuid(), n100Id, 'The number of circles covering a set', 'Kershner', 1939, null, null, null, '经典覆盖', 5);
+}
+
+const logInsert = db.prepare(`
+  INSERT INTO activity_log (id, entity_type, entity_id, action, detail) VALUES (?, ?, ?, ?, ?)
+`);
+logInsert.run(uuid(), 'system', 'mrs', 'seed', 'Seed problems, roles, RH + n100 campaigns');
+
+// Export knowledge markdown mirrors
+const knowledgeDir = path.join(__dirname, '../../knowledge/problems');
+fs.mkdirSync(knowledgeDir, { recursive: true });
+
+for (const p of problems) {
   const outPath = path.join(knowledgeDir, `${p.slug}.md`);
   if (fs.existsSync(outPath)) {
     const existing = fs.readFileSync(outPath, 'utf8');
     if (existing.includes('MRS 旗舰挑战题') || existing.includes('source_image:')) {
-      // keep hand-authored challenge pages
       continue;
     }
   }
@@ -753,6 +922,6 @@ ${p.references.map((r: { title: string; year: number }) => `- ${r.title} (${r.ye
   fs.writeFileSync(outPath, md);
 }
 
-console.log(`✅ Seeded ${problems.length} problems, ${roles.length} roles, 1 demo campaign`);
+console.log(`✅ Seeded ${problems.length} problems, ${roles.length} roles`);
 console.log(`   DB: ${path.join(dataDir, 'mrs.db')}`);
 console.log(`   Knowledge mirrors: ${knowledgeDir}`);

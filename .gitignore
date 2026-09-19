@@ -1,25 +1,35 @@
+# dependencies & build
 node_modules/
 dist/
 build/
-.out/
-.next/
-.venv/
-__pycache__/
-*.pyc
-.DS_Store
-*.log
+out/
+coverage/
+*.tsbuildinfo
+
+# env & secrets
 .env
-.env.*
+.env.local
+.env.*.local
+backend/.env
 !.env.example
+!backend/.env.example
+
+# runtime DB (rebuilt by seed)
 data/*.db
 data/*.db-shm
 data/*.db-wal
 data/*.db-journal
-frontend/dist/
-backend/dist/
-.arena/
+
+# caches / IDE
 .cache/
 .local/
-*.tsbuildinfo
+.arena/**
+!.arena/agent.json
 .vscode/
 .idea/
+.DS_Store
+*.log
+npm-debug.log*
+
+# frontend
+frontend/dist/

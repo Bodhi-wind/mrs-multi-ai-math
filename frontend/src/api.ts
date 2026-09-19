@@ -190,4 +190,65 @@ export const api = {
       recentMessages: any[];
       openProblems: Problem[];
     }>('/board'),
+  arenaManifest: () => request<any>('/arena/manifest'),
+  arenaKickoff: (slug?: string) =>
+    request<{ kickoff: string; system: string; slug: string; title_zh?: string; how_to: string }>(
+      `/arena/kickoff${slug ? `?slug=${encodeURIComponent(slug)}` : ''}`
+    ),
+  promptsMeta: () =>
+    request<{ files: string[]; roles: string[] }>('/prompts'),
+  buildPrompt: (body: { slug: string; role: string; focus?: string; extra_context?: string }) =>
+    request<{
+      role: string;
+      slug: string;
+      system: string;
+      user: string;
+      combined: string;
+      problem_title_zh?: string;
+    }>('/prompts/build', { method: 'POST', body: JSON.stringify(body) }),
+  promptPack: (slug: string) => request<any>(`/prompts/pack/${encodeURIComponent(slug)}`),
+  results: (params?: Record<string, string>) => {
+    const q = new URLSearchParams(params || {}).toString();
+    return request<any[]>(`/results${q ? `?${q}` : ''}`);
+  },
+  createResult: (body: Record<string, unknown>) =>
+    request<{ id: string }>('/results', { method: 'POST', body: JSON.stringify(body) }),
+  createResultsBatch: (body: Record<string, unknown>) =>
+    request<{ ids: string[]; count: number }>('/results/batch', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  synthesize: (body: Record<string, unknown>) =>
+    request<{
+      synthesis_id?: string;
+      artifact_id?: string;
+      markdown: string;
+      input_count: number;
+      claim_count: number;
+      conflicts: any[];
+      next_actions: string[];
+      four_requirements?: Record<string, string>;
+    }>('/synthesis', { method: 'POST', body: JSON.stringify(body) }),
+  syntheses: (params?: Record<string, string>) => {
+    const q = new URLSearchParams(params || {}).toString();
+    return request<any[]>(`/syntheses${q ? `?${q}` : ''}`);
+  },
+  llmStatus: () => request<{ configured: boolean; model: string; forceTemplate: boolean; keyPresent: boolean }>('/llm/status'),
+  runPipeline: (body: {
+    slug: string;
+    campaign_id?: string;
+    focus?: string;
+    roles?: string[];
+    use_llm?: boolean;
+    write_knowledge?: boolean;
+  }) => request<any>('/pipeline/run', { method: 'POST', body: JSON.stringify(body) }),
+  checklist: (slug: string) => request<any>(`/checklist/${encodeURIComponent(slug)}`),
+  saveChecklist: (slug: string, body: any) =>
+    request<any>(`/checklist/${encodeURIComponent(slug)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  resetChecklist: (slug: string) =>
+    request<any>(`/checklist/${encodeURIComponent(slug)}/reset`, { method: 'POST', body: '{}' }),
+  coveringBound: (body: Record<string, unknown>) =>
+    request<any>('/tools/covering-bound', { method: 'POST', body: JSON.stringify(body) }),
+  knowledgeCampaign: (slug: string) =>
+    request<{ slug: string; files: string[]; root: string }>(`/knowledge/campaigns/${encodeURIComponent(slug)}`),
 };

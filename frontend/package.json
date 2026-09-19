@@ -1,7 +1,7 @@
 {
-  "name": "frontend",
+  "name": "mrs-multi-ai-math-web",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -25,5 +25,6 @@
     "oxlint": "^1.81.0",
     "typescript": "~6.0.2",
     "vite": "^8.3.0"
-  }
+  },
+  "description": "MRS Math Lab workbench"
 }

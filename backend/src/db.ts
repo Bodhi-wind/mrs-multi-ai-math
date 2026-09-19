@@ -137,7 +137,38 @@ export function initSchema() {
       created_at TEXT DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS results (
+      id TEXT PRIMARY KEY,
+      problem_id TEXT,
+      campaign_id TEXT,
+      source TEXT,
+      role TEXT,
+      title TEXT,
+      content TEXT NOT NULL,
+      claims_json TEXT DEFAULT '[]',
+      score REAL,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (problem_id) REFERENCES problems(id),
+      FOREIGN KEY (campaign_id) REFERENCES campaigns(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS syntheses (
+      id TEXT PRIMARY KEY,
+      problem_id TEXT,
+      campaign_id TEXT,
+      title TEXT,
+      focus TEXT,
+      result_ids_json TEXT DEFAULT '[]',
+      report_md TEXT NOT NULL,
+      meta_json TEXT DEFAULT '{}',
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (problem_id) REFERENCES problems(id),
+      FOREIGN KEY (campaign_id) REFERENCES campaigns(id)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_problems_field ON problems(field);
+    CREATE INDEX IF NOT EXISTS idx_results_problem ON results(problem_id);
+    CREATE INDEX IF NOT EXISTS idx_syntheses_problem ON syntheses(problem_id);
     CREATE INDEX IF NOT EXISTS idx_problems_status ON problems(status);
     CREATE INDEX IF NOT EXISTS idx_campaigns_problem ON campaigns(problem_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_campaign ON sessions(campaign_id);

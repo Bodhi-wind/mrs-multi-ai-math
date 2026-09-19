@@ -5,6 +5,19 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { db, initSchema } from './db.js';
+import { buildPromptPack, buildRolePrompt, listPromptFiles, readPromptFile } from './prompts.js';
+import { synthesizeResults, type ResultInput } from './synthesis.js';
+import { chatCompletion, getLlmConfig } from './llm.js';
+import { runPipeline } from './pipeline.js';
+import { evaluateCovering } from './covering.js';
+import { loadChecklist, saveChecklist, mergeSynthesisHints, defaultChecklist } from './checklist.js';
+import {
+  listCampaignFiles,
+  writeResultMarkdown,
+  writeSynthesisMarkdown,
+  appendRunLog,
+  ensureCampaignDir,
+} from './knowledge.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, '../../data');
@@ -29,6 +42,21 @@ function logActivity(entityType: string, entityId: string, action: string, detai
   ).run(uuid(), entityType, entityId, action, detail ?? null);
 }
 
+const DENY_PATTERNS =
+  /(hack\s+into|sql\s*injection|malware|ransomware|zero[- ]day\s+exploit|ddos\s+attack|make\s+a\s+bomb|child\s*porn|csam|credit\s*card\s*fraud|steal\s+(password|credentials)|bypass\s+(auth|paywall|copyright\s+protection)|jailbreak\s+the\s+(model|ai))/i;
+
+function complianceCheck(text: string): { ok: boolean; reason?: string } {
+  if (!text) return { ok: true };
+  if (DENY_PATTERNS.test(text)) {
+    return {
+      ok: false,
+      reason:
+        '请求疑似涉及违法/不安全用途。MRS 仅用于合法数学研究；已拒绝处理。若是数学「攻击角度」请改用证明策略表述。',
+    };
+  }
+  return { ok: true };
+}
+
 function parseRow<T extends Record<string, unknown>>(row: T, jsonFields: string[]): T {
   const out = { ...row };
   for (const f of jsonFields) {
@@ -50,12 +78,23 @@ function parseRow<T extends Record<string, unknown>>(row: T, jsonFields: string[
 
 // ─── Meta ───────────────────────────────────────────────
 app.get('/api/health', (_req, res) => {
+  const llm = getLlmConfig();
   res.json({
     ok: true,
-    name: 'MRS Math Frontier Lab',
-    version: '1.0.0',
+    name: 'MRS Multi-AI Math',
+    version: '1.2.0',
     meaning: 'Multi-Role System',
     time: new Date().toISOString(),
+    llm: { configured: llm.configured, model: llm.model, forceTemplate: llm.forceTemplate },
+    features: [
+      'pipeline',
+      'llm_optional',
+      'knowledge_writeback',
+      'four_checklist',
+      'covering_upper_bound',
+      'multi_result_synthesis',
+      'prompt_workshop',
+    ],
   });
 });
 
@@ -473,37 +512,105 @@ app.post('/api/sessions/:id/messages', (req, res) => {
   res.status(201).json({ id });
 });
 
-/** Simulate a role response (template-based offline multi-AI stub) */
-app.post('/api/sessions/:id/run-role', (req, res) => {
-  const session = db
-    .prepare(
-      `SELECT s.*, r.name as role_name, r.name_zh as role_name_zh, r.system_prompt, r.id as rid
-       FROM sessions s JOIN roles r ON r.id = s.role_id WHERE s.id = ?`
-    )
-    .get(req.params.id) as any;
-  if (!session) return res.status(404).json({ error: 'Session not found' });
+/** Run role: optional LLM, else offline research template */
+app.post('/api/sessions/:id/run-role', async (req, res) => {
+  try {
+    const session = db
+      .prepare(
+        `SELECT s.*, r.name as role_name, r.name_zh as role_name_zh, r.system_prompt, r.id as rid
+         FROM sessions s JOIN roles r ON r.id = s.role_id WHERE s.id = ?`
+      )
+      .get(req.params.id) as any;
+    if (!session) return res.status(404).json({ error: 'Session not found' });
 
-  const campaign = db
-    .prepare(
-      `SELECT c.*, p.title as problem_title, p.title_zh as problem_title_zh,
-              p.summary, p.summary_zh, p.known_partial, p.key_obstacles, p.formal_statement, p.field
-       FROM campaigns c JOIN problems p ON p.id = c.problem_id WHERE c.id = ?`
-    )
-    .get(session.campaign_id) as any;
+    const campaign = db
+      .prepare(
+        `SELECT c.*, p.title as problem_title, p.title_zh as problem_title_zh, p.slug as problem_slug,
+                p.summary, p.summary_zh, p.known_partial, p.key_obstacles, p.formal_statement, p.field
+         FROM campaigns c JOIN problems p ON p.id = c.problem_id WHERE c.id = ?`
+      )
+      .get(session.campaign_id) as any;
 
-  const focus = req.body?.focus as string | undefined;
-  const content = generateRoleOutput(session.role_name, campaign, focus);
+    const focus = req.body?.focus as string | undefined;
+    const gate = complianceCheck(focus || '');
+    if (!gate.ok) return res.status(403).json({ error: gate.reason });
 
-  const id = uuid();
-  db.prepare(
-    `INSERT INTO messages (id, session_id, role_id, sender, content, message_type) VALUES (?,?,?,?,?,?)`
-  ).run(id, session.id, session.rid, session.role_name, content, 'analysis');
+    const forceTemplate = req.body?.force_template === true;
+    const llmCfg = getLlmConfig();
+    let content = '';
+    let engine: 'llm' | 'template' = 'template';
+    let model: string | undefined;
 
-  db.prepare(`UPDATE sessions SET updated_at = datetime('now') WHERE id = ?`).run(session.id);
-  db.prepare(`UPDATE campaigns SET updated_at = datetime('now') WHERE id = ?`).run(session.campaign_id);
-  logActivity('session', session.id, 'role_run', session.role_name);
+    if (!forceTemplate && llmCfg.configured && campaign?.problem_slug) {
+      try {
+        const roleKey = String(session.role_name || '').toLowerCase();
+        const built = buildRolePrompt({
+          slug: campaign.problem_slug,
+          role: roleKey,
+          focus,
+        });
+        const out = await chatCompletion({
+          system: built.system,
+          user: built.combined.slice(0, 12000),
+        });
+        content = out.content;
+        engine = 'llm';
+        model = out.model;
+      } catch (e: any) {
+        content = generateRoleOutput(session.role_name, campaign, focus);
+        content += `\n\n> [MRS] LLM 失败，已回退模板：${e.message}\n`;
+      }
+    } else {
+      content = generateRoleOutput(session.role_name, campaign, focus);
+    }
 
-  res.status(201).json({ id, content, role: session.role_name });
+    const id = uuid();
+    db.prepare(
+      `INSERT INTO messages (id, session_id, role_id, sender, content, message_type) VALUES (?,?,?,?,?,?)`
+    ).run(id, session.id, session.rid, session.role_name, content, 'analysis');
+
+    // also store as result row for synthesis
+    const resultId = uuid();
+    db.prepare(
+      `INSERT INTO results (id, problem_id, campaign_id, source, role, title, content, claims_json)
+       VALUES (?,?,?,?,?,?,?,?)`
+    ).run(
+      resultId,
+      campaign?.problem_id || null,
+      session.campaign_id,
+      engine === 'llm' ? `llm:${model}` : 'template',
+      String(session.role_name || '').toLowerCase(),
+      `${session.role_name_zh || session.role_name} run`,
+      content,
+      '[]'
+    );
+
+    let knowledge_path: string | undefined;
+    if (req.body?.write_knowledge !== false && campaign?.problem_slug) {
+      knowledge_path = writeResultMarkdown(campaign.problem_slug, {
+        role: String(session.role_name || 'unknown').toLowerCase(),
+        source: engine,
+        title: `${session.role_name_zh} run`,
+        content,
+      }).rel;
+    }
+
+    db.prepare(`UPDATE sessions SET updated_at = datetime('now') WHERE id = ?`).run(session.id);
+    db.prepare(`UPDATE campaigns SET updated_at = datetime('now') WHERE id = ?`).run(session.campaign_id);
+    logActivity('session', session.id, 'role_run', `${session.role_name}:${engine}`);
+
+    res.status(201).json({
+      id,
+      content,
+      role: session.role_name,
+      engine,
+      model,
+      result_id: resultId,
+      knowledge_path,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 function generateRoleOutput(roleName: string, campaign: any, focus?: string): string {
@@ -834,8 +941,471 @@ app.get('/api/board', (_req, res) => {
   res.json({ roles, activeCampaigns, recentMessages, openProblems });
 });
 
+// ─── Arena.ai Agent manifest ────────────────────────────
+app.get('/api/arena/manifest', (_req, res) => {
+  const manifestPath = path.join(__dirname, '../../.arena/agent.json');
+  let fileManifest: Record<string, unknown> = {};
+  try {
+    if (fs.existsSync(manifestPath)) {
+      fileManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    }
+  } catch {
+    /* ignore */
+  }
+  res.json({
+    ...fileManifest,
+    ok: true,
+    service: 'MRS Math Lab API',
+    arena_agent: 'https://arena.ai/agent/',
+    github: 'https://github.com/Bodhi-wind/mrs-multi-ai-math',
+    compliance: fileManifest.compliance || {
+      allowed: ['mathematical_research', 'multi_result_synthesis', 'prompt_packs'],
+      denied: ['cyber_attacks', 'malware', 'fraud', 'jailbreaks'],
+    },
+    endpoints: {
+      health: 'GET /api/health',
+      manifest: 'GET /api/arena/manifest',
+      problems: 'GET /api/problems',
+      prompt_build: 'POST /api/prompts/build',
+      prompt_pack: 'GET /api/prompts/pack/:slug',
+      results: 'POST /api/results | POST /api/results/batch | GET /api/results',
+      synthesis: 'POST /api/synthesis',
+      board: 'GET /api/board',
+    },
+    prompt_files: listPromptFiles(),
+  });
+});
+
+app.get('/api/arena/kickoff', (req, res) => {
+  const slug = String(req.query.slug || 'unit-disk-100-circle-covering');
+  try {
+    const pack = buildPromptPack(slug);
+    res.json({
+      slug: pack.slug,
+      title_zh: pack.title_zh,
+      kickoff: pack.arena_kickoff,
+      system: pack.system,
+      how_to:
+        '1) 打开 https://arena.ai/agent/ 并 Connect GitHub\n2) 选择 Bodhi-wind/mrs-multi-ai-math\n3) 粘贴 kickoff 作为首条用户消息\n4) 多模型结果用 /api/synthesis 或前端「多结果整合」合并',
+    });
+  } catch (e: any) {
+    res.status(404).json({ error: e.message });
+  }
+});
+
+// ─── Prompt factory ─────────────────────────────────────
+app.get('/api/prompts', (_req, res) => {
+  res.json({
+    files: listPromptFiles(),
+    roles: ['explorer', 'historian', 'prover', 'critic', 'formalizer', 'synthesizer'],
+  });
+});
+
+app.get('/api/prompts/raw/*', (req, res) => {
+  const name = decodeURIComponent(req.path.replace(/^\/api\/prompts\/raw\/?/, ''));
+  if (!name || name.includes('..')) return res.status(400).json({ error: 'invalid path' });
+  const content = readPromptFile(name);
+  if (!content) return res.status(404).json({ error: 'not found' });
+  res.type('text/markdown').send(content);
+});
+
+app.post('/api/prompts/build', (req, res) => {
+  try {
+    const { slug, role, focus, extra_context } = req.body || {};
+    if (!slug || !role) return res.status(400).json({ error: 'slug and role required' });
+    const gate = complianceCheck(`${focus || ''} ${extra_context || ''}`);
+    if (!gate.ok) return res.status(403).json({ error: gate.reason });
+    const built = buildRolePrompt({ slug, role, focus, extra_context });
+    res.json(built);
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.get('/api/prompts/pack/:slug', (req, res) => {
+  try {
+    res.json(buildPromptPack(req.params.slug));
+  } catch (e: any) {
+    res.status(404).json({ error: e.message });
+  }
+});
+
+// ─── Multi-result intake ────────────────────────────────
+function resolveProblemId(slugOrId?: string | null): string | null {
+  if (!slugOrId) return null;
+  const row = db.prepare(`SELECT id FROM problems WHERE id = ? OR slug = ?`).get(slugOrId, slugOrId) as
+    | { id: string }
+    | undefined;
+  return row?.id ?? null;
+}
+
+function insertResult(r: ResultInput & { problem_id?: string | null; campaign_id?: string | null }) {
+  const id = r.id || uuid();
+  db.prepare(
+    `INSERT INTO results (id, problem_id, campaign_id, source, role, title, content, claims_json, score)
+     VALUES (?,?,?,?,?,?,?,?,?)`
+  ).run(
+    id,
+    r.problem_id ?? null,
+    r.campaign_id ?? null,
+    r.source ?? null,
+    r.role ?? null,
+    r.title ?? null,
+    r.content,
+    JSON.stringify(r.claims ?? []),
+    r.score ?? null
+  );
+  return id;
+}
+
+app.get('/api/results', (req, res) => {
+  const { problem_id, problem_slug, campaign_id, limit } = req.query;
+  let sql = `SELECT * FROM results WHERE 1=1`;
+  const params: unknown[] = [];
+  const pid = resolveProblemId(String(problem_id || problem_slug || ''));
+  if (pid) {
+    sql += ` AND problem_id = ?`;
+    params.push(pid);
+  }
+  if (campaign_id) {
+    sql += ` AND campaign_id = ?`;
+    params.push(campaign_id);
+  }
+  sql += ` ORDER BY created_at DESC LIMIT ?`;
+  params.push(Math.min(Number(limit) || 100, 500));
+  const rows = db.prepare(sql).all(...params) as any[];
+  res.json(
+    rows.map((row) => ({
+      ...row,
+      claims: JSON.parse(row.claims_json || '[]'),
+    }))
+  );
+});
+
+app.post('/api/results', (req, res) => {
+  const b = req.body || {};
+  if (!b.content) return res.status(400).json({ error: 'content required' });
+  const gate = complianceCheck(b.content);
+  if (!gate.ok) return res.status(403).json({ error: gate.reason });
+  const problem_id = resolveProblemId(b.problem_id || b.problem_slug);
+  const id = insertResult({
+    ...b,
+    problem_id,
+    campaign_id: b.campaign_id || null,
+  });
+  logActivity('result', id, 'created', b.title || b.source || 'result');
+  res.status(201).json({ id });
+});
+
+app.post('/api/results/batch', (req, res) => {
+  const b = req.body || {};
+  const list: ResultInput[] = b.results || b;
+  if (!Array.isArray(list) || !list.length) {
+    return res.status(400).json({ error: 'results array required' });
+  }
+  const problem_id = resolveProblemId(b.problem_id || b.problem_slug);
+  const ids: string[] = [];
+  const insertMany = db.transaction(() => {
+    for (const item of list) {
+      if (!item.content) continue;
+      const gate = complianceCheck(item.content);
+      if (!gate.ok) throw new Error(gate.reason);
+      ids.push(
+        insertResult({
+          ...item,
+          problem_id,
+          campaign_id: b.campaign_id || null,
+        })
+      );
+    }
+  });
+  try {
+    insertMany();
+  } catch (e: any) {
+    return res.status(403).json({ error: e.message });
+  }
+  logActivity('results', problem_id || 'batch', 'batch_created', `${ids.length} results`);
+  res.status(201).json({ ids, count: ids.length });
+});
+
+// ─── Synthesis ──────────────────────────────────────────
+app.post('/api/synthesis', (req, res) => {
+  const b = req.body || {};
+  const gate = complianceCheck(JSON.stringify(b).slice(0, 8000));
+  if (!gate.ok) return res.status(403).json({ error: gate.reason });
+
+  const problem_id = resolveProblemId(b.problem_id || b.problem_slug);
+  let problem_title: string | undefined;
+  let problem_slug: string | undefined = b.problem_slug;
+  if (problem_id) {
+    const p = db.prepare(`SELECT title_zh, slug FROM problems WHERE id = ?`).get(problem_id) as any;
+    problem_title = p?.title_zh;
+    problem_slug = p?.slug || problem_slug;
+  }
+
+  let results: ResultInput[] = Array.isArray(b.results) ? b.results : [];
+
+  // Optionally pull stored results by ids or all for problem
+  if (Array.isArray(b.result_ids) && b.result_ids.length) {
+    const placeholders = b.result_ids.map(() => '?').join(',');
+    const rows = db
+      .prepare(`SELECT * FROM results WHERE id IN (${placeholders})`)
+      .all(...b.result_ids) as any[];
+    results = results.concat(
+      rows.map((row) => ({
+        id: row.id,
+        source: row.source,
+        role: row.role,
+        title: row.title,
+        content: row.content,
+        claims: JSON.parse(row.claims_json || '[]'),
+        score: row.score,
+      }))
+    );
+  } else if (b.include_stored && problem_id) {
+    const rows = db
+      .prepare(`SELECT * FROM results WHERE problem_id = ? ORDER BY created_at DESC LIMIT 50`)
+      .all(problem_id) as any[];
+    results = results.concat(
+      rows.map((row) => ({
+        id: row.id,
+        source: row.source,
+        role: row.role,
+        title: row.title,
+        content: row.content,
+        claims: JSON.parse(row.claims_json || '[]'),
+        score: row.score,
+      }))
+    );
+  }
+
+  if (!results.length) return res.status(400).json({ error: 'no results provided' });
+
+  try {
+    const report = synthesizeResults({
+      problem_slug,
+      problem_title,
+      focus: b.focus,
+      results,
+    });
+
+    let synthesis_id: string | undefined;
+    let artifact_id: string | undefined;
+
+    if (!b.dry_run) {
+      synthesis_id = uuid();
+      const resultIds = results.map((r) => r.id).filter(Boolean);
+      db.prepare(
+        `INSERT INTO syntheses (id, problem_id, campaign_id, title, focus, result_ids_json, report_md, meta_json)
+         VALUES (?,?,?,?,?,?,?,?)`
+      ).run(
+        synthesis_id,
+        problem_id,
+        b.campaign_id || null,
+        b.title || `综合报告 · ${problem_title || problem_slug || 'problem'}`,
+        b.focus || null,
+        JSON.stringify(resultIds),
+        report.markdown,
+        JSON.stringify({
+          claim_count: report.claim_count,
+          conflicts: report.conflicts,
+          next_actions: report.next_actions,
+          four_requirements: report.four_requirements,
+        })
+      );
+
+      if (b.save_artifact !== false && problem_id) {
+        artifact_id = uuid();
+        db.prepare(
+          `INSERT INTO artifacts (id, problem_id, campaign_id, kind, title, content, status)
+           VALUES (?,?,?,?,?,?,?)`
+        ).run(
+          artifact_id,
+          problem_id,
+          b.campaign_id || null,
+          'synthesis_report',
+          b.title || `多结果整合 · ${problem_title || problem_slug}`,
+          report.markdown,
+          'draft'
+        );
+      }
+      logActivity('synthesis', synthesis_id, 'created', `${report.input_count} inputs`);
+    }
+
+    let knowledge_path: string | undefined;
+    let checklist: unknown;
+    if (problem_slug && b.write_knowledge !== false && !b.dry_run) {
+      knowledge_path = writeSynthesisMarkdown(problem_slug, report.markdown, {
+        synthesis_id,
+        four_requirements: report.four_requirements,
+      }).rel;
+      appendRunLog(
+        problem_slug,
+        `\n## synthesis ${new Date().toISOString()}\n- inputs: ${report.input_count}\n- file: ${knowledge_path}\n`
+      );
+    }
+    if (problem_slug && (problem_slug.includes('unit-disk') || problem_slug.includes('covering') || b.update_checklist)) {
+      checklist = mergeSynthesisHints(problem_slug, report.four_requirements);
+    }
+
+    res.json({
+      synthesis_id,
+      artifact_id,
+      knowledge_path,
+      checklist,
+      ...report,
+    });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.get('/api/syntheses', (req, res) => {
+  const pid = resolveProblemId(String(req.query.problem_id || req.query.problem_slug || ''));
+  let sql = `SELECT id, problem_id, campaign_id, title, focus, result_ids_json, meta_json, created_at FROM syntheses WHERE 1=1`;
+  const params: unknown[] = [];
+  if (pid) {
+    sql += ` AND problem_id = ?`;
+    params.push(pid);
+  }
+  sql += ` ORDER BY created_at DESC LIMIT 50`;
+  const rows = db.prepare(sql).all(...params) as any[];
+  res.json(
+    rows.map((r) => ({
+      ...r,
+      result_ids: JSON.parse(r.result_ids_json || '[]'),
+      meta: JSON.parse(r.meta_json || '{}'),
+    }))
+  );
+});
+
+app.get('/api/syntheses/:id', (req, res) => {
+  const row = db.prepare(`SELECT * FROM syntheses WHERE id = ?`).get(req.params.id) as any;
+  if (!row) return res.status(404).json({ error: 'not found' });
+  res.json({
+    ...row,
+    result_ids: JSON.parse(row.result_ids_json || '[]'),
+    meta: JSON.parse(row.meta_json || '{}'),
+  });
+});
+
+// ─── Pipeline ───────────────────────────────────────────
+app.post('/api/pipeline/run', async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (!b.slug) return res.status(400).json({ error: 'slug required' });
+    const gate = complianceCheck(`${b.focus || ''} ${b.slug}`);
+    if (!gate.ok) return res.status(403).json({ error: gate.reason });
+
+    const out = await runPipeline({
+      slug: b.slug,
+      campaign_id: b.campaign_id,
+      focus: b.focus,
+      roles: b.roles,
+      use_llm: b.use_llm,
+      write_knowledge: b.write_knowledge !== false,
+      templateFn: generateRoleOutput,
+    });
+    logActivity('pipeline', out.campaign_id, 'run', b.slug);
+    res.status(201).json(out);
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// ─── Knowledge writeback / listing ──────────────────────
+app.get('/api/knowledge/campaigns/:slug', (req, res) => {
+  const slug = req.params.slug;
+  ensureCampaignDir(slug);
+  res.json({
+    slug,
+    files: listCampaignFiles(slug),
+    root: `knowledge/campaigns/${slug}`,
+  });
+});
+
+app.post('/api/knowledge/write', (req, res) => {
+  try {
+    const b = req.body || {};
+    if (!b.slug || !b.content) return res.status(400).json({ error: 'slug and content required' });
+    const gate = complianceCheck(b.content);
+    if (!gate.ok) return res.status(403).json({ error: gate.reason });
+    const kind = b.kind || 'result';
+    let written;
+    if (kind === 'synthesis') {
+      written = writeSynthesisMarkdown(b.slug, b.content, b.meta);
+    } else {
+      written = writeResultMarkdown(b.slug, {
+        role: b.role || 'unknown',
+        source: b.source || 'manual',
+        title: b.title,
+        content: b.content,
+      });
+    }
+    if (b.log) appendRunLog(b.slug, b.log);
+    res.status(201).json(written);
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Enhance synthesis handler result with knowledge + checklist (patch via wrapper)
+// We intercept by re-registering is hard; instead add post-hook endpoint and modify existing block.
+
+// ─── Four-requirement checklist ─────────────────────────
+app.get('/api/checklist/:slug', (req, res) => {
+  res.json(loadChecklist(req.params.slug));
+});
+
+app.put('/api/checklist/:slug', (req, res) => {
+  try {
+    const b = req.body || {};
+    const next = saveChecklist(req.params.slug, {
+      items: b.items,
+      blockers: b.blockers,
+    });
+    logActivity('checklist', req.params.slug, 'updated', next.overall);
+    res.json(next);
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/api/checklist/:slug/reset', (req, res) => {
+  const d = defaultChecklist(req.params.slug);
+  const next = saveChecklist(req.params.slug, d);
+  res.json(next);
+});
+
+// ─── Covering numerical upper bound (honest) ────────────
+app.post('/api/tools/covering-bound', (req, res) => {
+  try {
+    const b = req.body || {};
+    const n = Number(b.n || 100);
+    if (n < 1 || n > 500) return res.status(400).json({ error: 'n must be 1..500' });
+    const gate = complianceCheck(JSON.stringify(b).slice(0, 2000));
+    if (!gate.ok) return res.status(403).json({ error: gate.reason });
+    const evalResult = evaluateCovering({
+      n,
+      mode: b.mode,
+      centers: b.centers,
+      grid: b.grid,
+      spacing: b.spacing,
+    });
+    // never auto-mark checklist complete
+    res.json(evalResult);
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.get('/api/llm/status', (_req, res) => {
+  res.json(getLlmConfig());
+});
+
 const PORT = Number(process.env.PORT) || 8787;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🚀 MRS Math Lab API  http://0.0.0.0:${PORT}`);
-  console.log(`   Multi-Role System · Math Frontier Attack Library\n`);
+  console.log(`   MRS Multi-AI Math · Independent research lab`);
+  console.log(`   Arena Agent: https://arena.ai/agent/  ·  /api/arena/manifest\n`);
 });

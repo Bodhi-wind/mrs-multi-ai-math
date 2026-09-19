@@ -1,82 +1,149 @@
 # MRS · 多AI协作数学前沿攻克库
 
-**MRS = Multi-Role System（多角色系统）**
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![Version](https://img.shields.io/badge/version-1.2.0-brightgreen.svg)](./CHANGELOG.md)
+[![Arena Agent](https://img.shields.io/badge/Arena.ai-Agent%20Mode-7c3aed.svg)](https://arena.ai/agent/)
 
-一套面向数学研究前沿的混合系统：可扩展问题库 + 多 AI 角色协作攻关 + 证明工件 / 文献 / 进度追踪，带 Web 工作台与本地 API。
+**MRS = Multi-Role System（多角色系统）**  
+**独立仓库：** https://github.com/Bodhi-wind/mrs-multi-ai-math  
 
-## 系统组成
+面向数学研究前沿的**可独立运行**工作台：问题库 · 六角色协作 · 一键流水线 · 多结果整合 · 提示词工坊 · Knowledge 回写 · 可接 [Arena.ai Agent](https://arena.ai/agent/)。
 
-| 层级 | 内容 |
-|------|------|
-| **问题库** | 千禧年问题、经典未解猜想、当代前沿（几何朗兰兹、AI4Math、挂谷等），可检索 / 筛选 / 录入 |
-| **MRS 六角色** | Explorer 探索者 · Prover 证明者 · Critic 批判者 · Formalizer 形式化者 · Synthesizer 综合者 · Historian 史鉴者 |
-| **攻克战役** | 绑定问题的协作项目，含里程碑、角色会话、进度条 |
-| **工件与文献** | Lean 草稿、策略文档、证明笔记、文献条目 |
-| **知识镜像** | `knowledge/problems/*.md` 与数据库同步的可版本管理文稿 |
+> **合规：** 仅合法数学/学术研究。违法、入侵、恶意软件、欺诈、越狱等 **拒绝接入**。详见 [`AGENTS.md`](./AGENTS.md)。
 
-## 快速启动
+---
+
+## 60 秒上手
 
 ```bash
-# 1. 后端（API + SQLite）
-cd backend
-npm install
-npm run seed    # 写入示范问题与 RH 战役
-npm run dev     # http://0.0.0.0:8787
-
-# 2. 前端（另开终端）
-cd frontend
-npm install
-npm run dev     # http://0.0.0.0:5173  （/api 已代理到后端）
+git clone https://github.com/Bodhi-wind/mrs-multi-ai-math.git
+cd mrs-multi-ai-math
+npm run setup
+npm run api    # 终端 1 · http://localhost:8787
+npm run web    # 终端 2 · http://localhost:5173
 ```
 
-## 默认工作流
+或一条命令：`npm start`。
 
-1. 在 **前沿问题库** 浏览或录入问题  
-2. 打开问题详情 → **发起攻克战役**（自动生成 MRS 六步里程碑）  
-3. 在战役页依次启动角色会话，点击 **运行角色** 生成结构化输出  
-4. 用 Critic 审查、Formalizer 产出 Lean 草稿，Synthesizer 汇总下一步  
-5. 工件与文献沉淀到对应库，活动日志可审计
+| 页面 | 路径 |
+|------|------|
+| 总览 | `/` |
+| 问题库 | `/problems` |
+| 一键流水线 | `/pipeline` |
+| 100 圆专项 | `/n100` |
+| 提示词工坊 | `/prompts` |
+| 多结果整合 | `/synthesis` |
 
-## 目录结构
+---
 
+## 系统能力
+
+| 模块 | 说明 |
+|------|------|
+| **问题库** | 21+ 前沿题（含千禧年）；Markdown 镜像 `knowledge/problems/` |
+| **MRS 六角色** | Explorer · Historian · Prover · Critic · Formalizer · Synthesizer |
+| **一键流水线** | 多角色串联 → 综合 → 回写 `knowledge/campaigns/` |
+| **多结果整合** | 多模型产出登记、冲突检测、四要件快检 |
+| **提示词工坊** | 按问题×角色生成，可粘贴到 Arena / 外部 LLM |
+| **可选 LLM** | OpenAI 兼容 API；无 Key 则离线研究模板 |
+| **N100 实验室** | 四要件清单 + **诚实**数值上界（永不自动升格为定理） |
+| **Arena** | `AGENTS.md` · `.arena/agent.json` · `/api/arena/*` |
+
+---
+
+## 旗舰挑战
+
+**单位圆盘的 100 圆最优覆盖**（`unit-disk-100-circle-covering`）
+
+四要件（缺一不可）：精确代数半径 · 具体构型 \(C_*\) · 连续统覆盖证明 · 无对称假设的全局最优。
+
+- 题面：[`knowledge/problems/unit-disk-100-circle-covering.md`](./knowledge/problems/unit-disk-100-circle-covering.md)  
+- 提示词包：[`prompts/flagship_n100_pack.md`](./prompts/flagship_n100_pack.md)  
+- 战役回写：`knowledge/campaigns/unit-disk-100-circle-covering/`
+
+---
+
+## 接入 Arena.ai Agent
+
+1. 打开 https://arena.ai/agent/ → **Connect GitHub**  
+2. 选择 `Bodhi-wind/mrs-multi-ai-math`  
+3. 粘贴 Kickoff（工坊页或 `GET /api/arena/kickoff`）  
+4. 多路输出拿回本地 **多结果整合** 或再跑 **流水线**  
+
+说明：[`docs/ARENA_CONNECT.md`](./docs/ARENA_CONNECT.md)
+
+---
+
+## 可选：真实 LLM
+
+```bash
+cp backend/.env.example backend/.env
+# MRS_LLM_API_KEY=...
+# MRS_LLM_BASE_URL=https://api.openai.com/v1
+# MRS_LLM_MODEL=gpt-4o-mini
 ```
-mrs-math-lab/
-├── backend/           # Express + better-sqlite3 API
-│   └── src/
-│       ├── index.ts   # REST API
-│       ├── db.ts      # Schema
-│       └── seed.ts    # 种子数据（20+ 前沿问题）
-├── frontend/          # React + Vite + TS 工作台
-├── knowledge/         # Markdown 问题镜像
-│   └── problems/
-├── agents/            # 角色定义（YAML）
-├── data/              # SQLite DB（运行后生成）
-└── docs/
-```
+
+重启 API。**勿提交 `.env`。**
+
+---
 
 ## API 摘要
 
-- `GET /api/problems` · `GET /api/problems/:slug`
-- `GET /api/roles` · `GET /api/campaigns` · `POST /api/campaigns`
-- `POST /api/sessions` · `POST /api/sessions/:id/run-role`
-- `GET /api/artifacts` · `GET /api/literature` · `GET /api/board` · `GET /api/stats`
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/health` | 健康检查 + 特性列表 |
+| GET | `/api/arena/manifest` | Agent 清单 |
+| GET | `/api/arena/kickoff` | 开场提示词 |
+| POST | `/api/prompts/build` | 生成角色提示词 |
+| POST | `/api/pipeline/run` | 一键流水线 |
+| POST | `/api/results/batch` | 多结果登记 |
+| POST | `/api/synthesis` | 多结果整合 |
+| GET/PUT | `/api/checklist/:slug` | 四要件清单 |
+| POST | `/api/tools/covering-bound` | 数值上界（非定理） |
+| GET | `/api/knowledge/campaigns/:slug` | 回写文件列表 |
 
-## 旗舰挑战题
+冒烟：`npm run smoke`（需 API 已启动）。
 
-**单位圆盘的 100 圆最优覆盖问题**（`unit-disk-100-circle-covering`）
+---
 
-- 确定 $r_D(100)$，并满足四要件：精确代数半径 · 具体构型 $C_*$ · 连续统覆盖证明 · 无对称假设的全局最优性
-- 原题图：`knowledge/challenges/unit-disk-100-circle-covering.png`
-- 详述：`knowledge/problems/unit-disk-100-circle-covering.md`
+## 目录结构
+
+```text
+mrs-multi-ai-math/
+├── AGENTS.md · CONTRIBUTING.md · CHANGELOG.md · LICENSE
+├── .arena/agent.json
+├── agents/roles.yaml
+├── backend/          # Express + better-sqlite3
+├── frontend/         # React + Vite
+├── knowledge/
+│   ├── problems/     # 题面
+│   ├── challenges/   # 旗舰原题图
+│   └── campaigns/    # 流水线回写
+├── prompts/          # 提示词模板
+├── docs/
+└── scripts/start.sh · smoke.sh
+```
+
+---
 
 ## 设计原则
 
-1. **可扩展**：问题 / 角色 / 战役皆为数据，不写死领域  
-2. **对抗协作**：Prover 与 Critic 成对出现，避免自嗨证明  
-3. **形式化对齐**：Formalizer 把非形式草稿推到 Lean 债务看板  
-4. **诚实进度**：里程碑与 Critic 裁决约束 progress 通胀  
-5. **离线可跑**：角色输出内置研究模板引擎；可再对接外部 LLM API
+1. 可扩展问题/角色/战役数据模型  
+2. Prover ↔ Critic 对抗，禁止自嗨证明  
+3. 诚实进度与 `[GAP]` 标记  
+4. 数值 ≠ 定理（覆盖工具强制免责声明）  
+5. 产物可 git，供 Arena 续跑  
+
+---
+
+## 文档
+
+- [使用指南](./docs/USAGE_ZH.md)  
+- [架构](./docs/ARCHITECTURE.md)  
+- [Arena 接入](./docs/ARENA_CONNECT.md)  
+- [贡献](./CONTRIBUTING.md)  
+- [变更日志](./CHANGELOG.md)  
 
 ## License
 
-MIT
+MIT © MRS Math Lab contributors

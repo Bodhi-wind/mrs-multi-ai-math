@@ -1,51 +1,63 @@
-# MRS 架构说明
+# MRS 架构（v1.2）
 
 ## 总览
 
-```
-┌─────────────────────────────────────────────────────────┐
-│  Frontend (React + Vite)  ·  数学前沿攻克工作台            │
-│  看板 / 问题库 / 战役 / 角色 / 工件 / 文献 / 日志          │
-└───────────────────────────┬─────────────────────────────┘
-                            │  /api proxy
-┌───────────────────────────▼─────────────────────────────┐
-│  Backend (Express + TS)                                  │
-│  REST · 角色模板引擎 · 活动日志                           │
-└───────────────────────────┬─────────────────────────────┘
-                            │
-┌───────────────────────────▼─────────────────────────────┐
-│  SQLite (data/mrs.db)                                    │
-│  problems · roles · campaigns · sessions · messages      │
-│  artifacts · literature · milestones · activity_log      │
-└─────────────────────────────────────────────────────────┘
-        │
-        ▼
-  knowledge/problems/*.md   ← 可 git 版本管理的镜像
-  agents/roles.yaml         ← 角色治理与流水线
+```text
+┌────────────────────────────┐     Connect GitHub
+│  Arena.ai Agent Mode       │◄──────────────────── 用户
+└─────────────┬──────────────┘
+              │ 读仓库 / 写 PR 思路
+┌─────────────▼──────────────┐
+│  Git repo (knowledge,      │
+│  prompts, AGENTS.md)       │
+└─────────────┬──────────────┘
+              │ 本地开发也可
+┌─────────────▼──────────────┐
+│  Frontend :5173            │
+│  看板/题库/流水线/N100/    │
+│  提示词/整合               │
+└─────────────┬──────────────┘
+              │ /api proxy
+┌─────────────▼──────────────┐
+│  Backend :8787             │
+│  roles · pipeline · llm?   │
+│  synthesis · checklist ·   │
+│  covering tool             │
+└─────────────┬──────────────┘
+       ┌──────┴──────┐
+       ▼             ▼
+  SQLite data/   knowledge/campaigns/
+  (本地运行时)    (可提交 git)
 ```
 
-## 数据模型（核心）
+## 流水线数据流
 
-- **Problem**：前沿问题原子；状态 ∈ open | partial | contested | active-frontier | resolved
-- **Campaign**：针对单问题的攻克项目
-- **Session**：某角色在战役中的一次工作线程
-- **Message**：简报 / 分析 / 证明草稿 / 人类注释
-- **Artifact**：可沉淀产物（lean_sketch, strategy_doc, proof_draft…）
-- **Milestone**：战役检查点（默认 MRS 六步）
-
-## 多角色协作循环
-
+```text
+slug + focus
+  → 各角色 session/message
+  → results 表
+  → synthesizeResults()
+  → syntheses + artifacts
+  → knowledge/campaigns/<slug>/results|runs
+  → checklist 启发式更新（覆盖类题）
 ```
-Explorer ──► Historian ──► Prover ──► Critic
-                │                        │
-                └────────► Formalizer ◄──┘
-                              │
-                         Synthesizer ──► (下一轮 / pivot)
-```
+
+## LLM 策略
+
+1. 读 `backend/.env`（可选）  
+2. 有 Key 且未 `FORCE_TEMPLATE` → Chat Completions  
+3. 否则 / 失败 → `generateRoleOutput` 研究模板  
+4. 合规门禁对 focus/content 先过滤  
+
+## 四要件与数值工具
+
+- Checklist 状态机：missing → partial → claimed → verified  
+- Covering bound **只**产出 `numerical_upper_bound`，UI/API 均带免责声明  
+- 禁止流水线自动写入 `verified`  
 
 ## 扩展点
 
-1. **外部 LLM**：将 `POST /sessions/:id/run-role` 中的 `generateRoleOutput` 替换为真实模型调用，注入 `roles.system_prompt`
-2. **Lean LSP**：Formalizer 工件可对接本地 `lake` / mathlib 检查
-3. **导入导出**：problems / artifacts 已有 MD 镜像，可加 JSONL bulk import
-4. **权限与多用户**：当前为单机研究工作台；可加 auth 中间件
+- 替换 `llm.ts` 为其它供应商  
+- `pipeline.ts` 调整默认角色序  
+- `synthesis.ts` 增强声明抽取  
+- 新问题：md + seed 条目  

@@ -1,7 +1,7 @@
 {
-  "name": "mrs-math-lab-backend",
-  "version": "1.0.0",
-  "description": "MRS Multi-Role System Math Frontier Attack Library API",
+  "name": "mrs-multi-ai-math-api",
+  "version": "1.2.0",
+  "description": "MRS Math Lab API \u2014 Multi-Role System backend",
   "main": "src/index.ts",
   "type": "module",
   "scripts": {
@@ -9,7 +9,12 @@
     "start": "tsx src/index.ts",
     "seed": "tsx src/seed.ts"
   },
-  "keywords": ["math", "ai", "multi-agent", "research"],
+  "keywords": [
+    "math",
+    "ai",
+    "multi-agent",
+    "research"
+  ],
   "author": "MRS Lab",
   "license": "MIT",
   "dependencies": {
@@ -19,6 +24,7 @@
     "uuid": "^11.0.5"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.5",

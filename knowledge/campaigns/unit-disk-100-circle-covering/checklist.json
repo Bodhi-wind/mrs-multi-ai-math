@@ -1,0 +1,40 @@
+{
+  "slug": "unit-disk-100-circle-covering",
+  "updated_at": "2026-09-18T14:04:27.489Z",
+  "items": [
+    {
+      "id": "exact_radius",
+      "title": "Exact radius",
+      "title_zh": "精确半径",
+      "status": "missing",
+      "evidence": "",
+      "notes": "缺失或不足"
+    },
+    {
+      "id": "configuration",
+      "title": "Explicit configuration C*",
+      "title_zh": "具体构型",
+      "status": "missing",
+      "evidence": "",
+      "notes": "缺失或不足"
+    },
+    {
+      "id": "covering",
+      "title": "Continuum covering proof",
+      "title_zh": "覆盖性",
+      "status": "missing",
+      "evidence": "",
+      "notes": "缺失或不足"
+    },
+    {
+      "id": "optimality",
+      "title": "Global optimality",
+      "title_zh": "全局最优性",
+      "status": "missing",
+      "evidence": "",
+      "notes": "缺失或不足"
+    }
+  ],
+  "blockers": [],
+  "overall": "not_started"
+}
